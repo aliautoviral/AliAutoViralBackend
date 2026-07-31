@@ -9,13 +9,16 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 
-/* ---------------- SECURITY ---------------- */
-
+/*
+ * Security
+ */
 app.use(helmet());
 
 app.use(
     cors({
-        origin: "*"
+        origin: "*",
+        methods: ["GET", "POST"],
+        allowedHeaders: ["Content-Type"]
     })
 );
 
@@ -25,44 +28,56 @@ app.use(
     })
 );
 
+/*
+ * Rate limiting
+ */
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 30,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    message: {
+        success: false,
+        error: "Too many requests. Please try again later."
+    }
 });
 
 app.use("/api/", apiLimiter);
 
-
-/* ---------------- HOME ---------------- */
-
+/*
+ * Home
+ */
 app.get("/", function (req, res) {
 
-    res.json({
+    res.status(200).json({
         success: true,
         app: "Ali Auto Viral Backend",
         status: "online"
     });
-
 });
 
-
-/* ---------------- HEALTH CHECK ---------------- */
-
+/*
+ * Health check
+ */
 app.get("/api/health", function (req, res) {
 
-    res.json({
+    res.status(200).json({
         success: true,
         status: "healthy",
         timestamp: new Date().toISOString()
     });
-
 });
 
-
-/* ---------------- CREATE VIDEO ---------------- */
-
+/*
+ * Create video request
+ *
+ * IMPORTANT:
+ * At this stage this endpoint only validates
+ * and queues the request.
+ *
+ * It does NOT pretend that an AI video
+ * has already been generated.
+ */
 app.post("/api/video/create", function (req, res) {
 
     try {
@@ -73,21 +88,18 @@ app.post("/api/video/create", function (req, res) {
         const voicePath = body.voice_path;
         const quality = body.quality;
         const style = body.style;
-        const instruction = body.instruction || "";
+        const instruction = body.instruction;
 
-        /* PHOTO */
-
+        /*
+         * Required fields
+         */
         if (!photoPath) {
 
             return res.status(400).json({
                 success: false,
                 error: "Photo is required."
             });
-
         }
-
-
-        /* VOICE */
 
         if (!voicePath) {
 
@@ -95,15 +107,14 @@ app.post("/api/video/create", function (req, res) {
                 success: false,
                 error: "Voice recording is required."
             });
-
         }
 
-
-        /* QUALITY */
-
+        /*
+         * Allowed video qualities
+         */
         const allowedQualities = [
-            "1080p",
             "360p",
+            "1080p",
             "1440p",
             "4K",
             "8K"
@@ -115,12 +126,11 @@ app.post("/api/video/create", function (req, res) {
                 success: false,
                 error: "Invalid video quality."
             });
-
         }
 
-
-        /* STYLE */
-
+        /*
+         * Allowed styles
+         */
         const allowedStyles = [
             "Natural",
             "Cinematic"
@@ -132,12 +142,25 @@ app.post("/api/video/create", function (req, res) {
                 success: false,
                 error: "Invalid video style."
             });
-
         }
 
+        /*
+         * Basic instruction validation
+         */
+        if (
+            instruction &&
+            typeof instruction !== "string"
+        ) {
 
-        /* JOB ID */
+            return res.status(400).json({
+                success: false,
+                error: "Instruction must be text."
+            });
+        }
 
+        /*
+         * Generate a temporary job ID.
+         */
         const jobId =
             "job_" +
             Date.now() +
@@ -146,38 +169,23 @@ app.post("/api/video/create", function (req, res) {
                 .toString(36)
                 .substring(2, 10);
 
-
         console.log("");
-        console.log("========== NEW VIDEO JOB ==========");
+        console.log("================================");
+        console.log("New video request");
         console.log("Job ID:", jobId);
         console.log("Quality:", quality);
         console.log("Style:", style);
-        console.log("Instruction:", instruction);
-        console.log("===================================");
+        console.log(
+            "Instruction:",
+            instruction || ""
+        );
+        console.log("================================");
         console.log("");
 
-
         /*
-         * IMPORTANT:
-         *
-         * Abhi AI provider connect nahi kiya gaya hai.
-         *
-         * Ye endpoint sirf request receive karke
-         * validate karta hai.
-         *
-         * Agle stage mein:
-         *
-         * Photo upload
-         * Voice upload
-         * Photo enhancement
-         * AI video generation
-         * Job status
-         * Video download
-         *
-         * add kiya jayega.
+         * Do not expose local Android paths
+         * in the response.
          */
-
-
         return res.status(202).json({
 
             success: true,
@@ -193,20 +201,18 @@ app.post("/api/video/create", function (req, res) {
 
             requested_style: style,
 
-            face_preservation: true,
-
-            photo_enhancement: true,
-
-            voice_enhancement: true,
-
-            natural_voice: true
-
+            features: {
+                face_preservation: true,
+                photo_enhancement: true,
+                voice_enhancement: true,
+                natural_voice: true
+            }
         });
 
     } catch (error) {
 
         console.error(
-            "Video creation error:",
+            "Video request error:",
             error
         );
 
@@ -216,49 +222,59 @@ app.post("/api/video/create", function (req, res) {
 
             error:
                 "Internal backend error."
-
         });
-
     }
-
 });
 
-
-/* ---------------- 404 ---------------- */
-
+/*
+ * 404 handler
+ */
 app.use(function (req, res) {
 
     res.status(404).json({
 
         success: false,
 
-        error: "Endpoint not found."
-
+        error:
+            "Endpoint not found."
     });
-
 });
 
+/*
+ * Global error handler
+ */
+app.use(function (
+    error,
+    req,
+    res,
+    next
+) {
 
-/* ---------------- START SERVER ---------------- */
-
-app.listen(PORT, function () {
-
-    console.log("");
-    console.log(
-        "======================================"
+    console.error(
+        "Server error:",
+        error
     );
 
-    console.log(
-        "Ali Auto Viral Backend is running"
-    );
+    res.status(500).json({
 
-    console.log(
-        "Port:",
-        PORT
-    );
+        success: false,
 
-    console.log(
-        "======================================"
-    );
-
+        error:
+            "Internal server error."
+    });
 });
+
+/*
+ * Start server
+ */
+app.listen(
+    PORT,
+    "0.0.0.0",
+    function () {
+
+        console.log(
+            "Ali Auto Viral backend running on port " +
+            PORT
+        );
+    }
+);
