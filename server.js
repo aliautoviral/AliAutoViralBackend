@@ -5,134 +5,10 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const multer = require("multer");
-const fs = require("fs");
-const path = require("path");
 
 const app = express();
 
 const PORT = process.env.PORT || 3000;
-
-/*
- * Upload directory
- */
-const uploadDirectory = path.join(
-    __dirname,
-    "uploads"
-);
-
-if (!fs.existsSync(uploadDirectory)) {
-    fs.mkdirSync(uploadDirectory, {
-        recursive: true
-    });
-}
-
-/*
- * Multer configuration
- *
- * Files are temporarily stored on the server.
- */
-const storage = multer.diskStorage({
-
-    destination: function (req, file, cb) {
-
-        cb(
-            null,
-            uploadDirectory
-        );
-    },
-
-    filename: function (req, file, cb) {
-
-        const extension =
-            path.extname(
-                file.originalname
-            );
-
-        const uniqueName =
-            Date.now() +
-            "_" +
-            Math.random()
-                .toString(36)
-                .substring(2, 10) +
-            extension;
-
-        cb(
-            null,
-            uniqueName
-        );
-    }
-});
-
-const upload = multer({
-
-    storage: storage,
-
-    limits: {
-        fileSize:
-            100 * 1024 * 1024
-    },
-
-    fileFilter: function (
-        req,
-        file,
-        cb
-    ) {
-
-        if (
-            file.fieldname === "photo"
-        ) {
-
-            if (
-                file.mimetype.startsWith(
-                    "image/"
-                )
-            ) {
-
-                cb(null, true);
-
-            } else {
-
-                cb(
-                    new Error(
-                        "Photo must be an image file."
-                    )
-                );
-            }
-
-            return;
-        }
-
-        if (
-            file.fieldname === "voice"
-        ) {
-
-            if (
-                file.mimetype.startsWith(
-                    "audio/"
-                )
-            ) {
-
-                cb(null, true);
-
-            } else {
-
-                cb(
-                    new Error(
-                        "Voice must be an audio file."
-                    )
-                );
-            }
-
-            return;
-        }
-
-        cb(
-            new Error(
-                "Unexpected file field."
-            )
-        );
-    }
-});
 
 /*
  * Security
@@ -142,16 +18,14 @@ app.use(helmet());
 app.use(
     cors({
         origin: "*",
-        methods: [
-            "GET",
-            "POST"
-        ],
-        allowedHeaders: [
-            "Content-Type"
-        ]
+        methods: ["GET", "POST"],
+        allowedHeaders: ["Content-Type"]
     })
 );
 
+/*
+ * JSON support
+ */
 app.use(
     express.json({
         limit: "2mb"
@@ -159,84 +33,69 @@ app.use(
 );
 
 /*
+ * Multipart upload support
+ *
+ * Files are kept in memory temporarily.
+ * We do not expose them publicly.
+ */
+const upload = multer({
+    storage: multer.memoryStorage(),
+
+    limits: {
+        fileSize: 50 * 1024 * 1024
+    }
+});
+
+/*
  * Rate limiting
  */
 const apiLimiter = rateLimit({
-
-    windowMs:
-        60 * 1000,
-
+    windowMs: 60 * 1000,
     max: 30,
-
     standardHeaders: true,
-
     legacyHeaders: false,
 
     message: {
         success: false,
-        error:
-            "Too many requests. Please try again later."
+        error: "Too many requests. Please try again later."
     }
 });
 
-app.use(
-    "/api/",
-    apiLimiter
-);
+app.use("/api/", apiLimiter);
 
 /*
  * Home
  */
-app.get(
-    "/",
-    function (req, res) {
+app.get("/", function (req, res) {
 
-        res.status(200).json({
-
-            success: true,
-
-            app:
-                "Ali Auto Viral Backend",
-
-            status:
-                "online"
-        });
-    }
-);
+    res.status(200).json({
+        success: true,
+        app: "Ali Auto Viral Backend",
+        status: "online"
+    });
+});
 
 /*
  * Health check
  */
-app.get(
-    "/api/health",
-    function (req, res) {
+app.get("/api/health", function (req, res) {
 
-        res.status(200).json({
-
-            success: true,
-
-            status:
-                "healthy",
-
-            timestamp:
-                new Date().toISOString()
-        });
-    }
-);
+    res.status(200).json({
+        success: true,
+        status: "healthy",
+        timestamp: new Date().toISOString()
+    });
+});
 
 /*
  * Create video request
  *
  * Receives:
- *
  * photo
  * voice
  * quality
  * style
  * instruction
- *
- * The actual AI generation is NOT
- * connected yet.
  */
 app.post(
     "/api/video/create",
@@ -262,47 +121,14 @@ app.post(
             const files =
                 req.files || {};
 
-            const photoFiles =
-                files.photo || [];
+            const photo =
+                files.photo &&
+                files.photo[0];
 
-            const voiceFiles =
-                files.voice || [];
+            const voice =
+                files.voice &&
+                files.voice[0];
 
-            /*
-             * Check photo
-             */
-            if (
-                photoFiles.length === 0
-            ) {
-
-                return res.status(400).json({
-
-                    success: false,
-
-                    error:
-                        "Photo file is required."
-                });
-            }
-
-            /*
-             * Check voice
-             */
-            if (
-                voiceFiles.length === 0
-            ) {
-
-                return res.status(400).json({
-
-                    success: false,
-
-                    error:
-                        "Voice recording file is required."
-                });
-            }
-
-            /*
-             * Read text fields
-             */
             const quality =
                 body.quality;
 
@@ -313,10 +139,37 @@ app.post(
                 body.instruction || "";
 
             /*
+             * Check photo
+             */
+            if (!photo) {
+
+                return res.status(400).json({
+
+                    success: false,
+
+                    error:
+                        "Photo is required."
+                });
+            }
+
+            /*
+             * Check voice
+             */
+            if (!voice) {
+
+                return res.status(400).json({
+
+                    success: false,
+
+                    error:
+                        "Voice recording is required."
+                });
+            }
+
+            /*
              * Allowed qualities
              */
             const allowedQualities = [
-
                 "360p",
                 "1080p",
                 "1440p",
@@ -343,7 +196,6 @@ app.post(
              * Allowed styles
              */
             const allowedStyles = [
-
                 "Natural",
                 "Cinematic"
             ];
@@ -381,15 +233,6 @@ app.post(
             }
 
             /*
-             * Uploaded files
-             */
-            const photo =
-                photoFiles[0];
-
-            const voice =
-                voiceFiles[0];
-
-            /*
              * Generate job ID
              */
             const jobId =
@@ -400,6 +243,12 @@ app.post(
                     .toString(36)
                     .substring(2, 10);
 
+            /*
+             * Log basic information.
+             *
+             * Do NOT log the actual
+             * photo/voice contents.
+             */
             console.log("");
             console.log(
                 "================================"
@@ -416,22 +265,14 @@ app.post(
 
             console.log(
                 "Photo:",
-                photo.originalname
-            );
-
-            console.log(
-                "Photo size:",
+                photo.originalname,
                 photo.size,
                 "bytes"
             );
 
             console.log(
                 "Voice:",
-                voice.originalname
-            );
-
-            console.log(
-                "Voice size:",
+                voice.originalname,
                 voice.size,
                 "bytes"
             );
@@ -458,20 +299,18 @@ app.post(
             console.log("");
 
             /*
-             * IMPORTANT
+             * At this stage the request is
+             * successfully received.
              *
-             * At this stage we only confirm
-             * that the files reached the backend.
-             *
-             * AI generation will be connected
-             * in the next stage.
+             * Actual AI generation will be
+             * connected in the next stage.
              */
             return res.status(202).json({
 
                 success: true,
 
                 message:
-                    "Photo and voice uploaded successfully.",
+                    "Photo and voice received successfully.",
 
                 job_id:
                     jobId,
@@ -479,44 +318,45 @@ app.post(
                 status:
                     "queued",
 
+                photo: {
+                    received: true,
+                    filename:
+                        photo.originalname,
+                    size:
+                        photo.size
+                },
+
+                voice: {
+                    received: true,
+                    filename:
+                        voice.originalname,
+                    size:
+                        voice.size
+                },
+
                 requested_quality:
                     quality,
 
                 requested_style:
                     style,
 
-                uploaded_files: {
-
-                    photo: {
-                        original_name:
-                            photo.originalname,
-
-                        size:
-                            photo.size
-                    },
-
-                    voice: {
-                        original_name:
-                            voice.originalname,
-
-                        size:
-                            voice.size
-                    }
-                },
-
                 features: {
 
                     face_preservation:
-                        true,
+                        body.face_preservation ===
+                        "true",
 
                     photo_enhancement:
-                        true,
+                        body.photo_enhancement ===
+                        "true",
 
                     voice_enhancement:
-                        true,
+                        body.voice_enhancement ===
+                        "true",
 
                     natural_voice:
-                        true
+                        body.natural_voice ===
+                        "true"
                 }
             });
 
@@ -541,45 +381,40 @@ app.post(
 /*
  * 404 handler
  */
-app.use(
-    function (req, res) {
+app.use(function (req, res) {
 
-        res.status(404).json({
+    res.status(404).json({
 
-            success: false,
+        success: false,
 
-            error:
-                "Endpoint not found."
-        });
-    }
-);
+        error:
+            "Endpoint not found."
+    });
+});
 
 /*
  * Global error handler
  */
-app.use(
-    function (
-        error,
-        req,
-        res,
-        next
-    ) {
+app.use(function (
+    error,
+    req,
+    res,
+    next
+) {
 
-        console.error(
-            "Server error:",
-            error
-        );
+    console.error(
+        "Server error:",
+        error
+    );
 
-        res.status(400).json({
+    res.status(500).json({
 
-            success: false,
+        success: false,
 
-            error:
-                error.message ||
-                "Server error."
-        });
-    }
-);
+        error:
+            "Internal server error."
+    });
+});
 
 /*
  * Start server
