@@ -1,7 +1,7 @@
 {
   "name": "ali-auto-viral-backend",
   "version": "1.0.0",
-  "description": "Secure backend for Ali Auto Viral AI video application",
+  "description": "Backend for Ali Auto Viral",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
